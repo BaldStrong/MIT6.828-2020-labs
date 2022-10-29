@@ -92,6 +92,8 @@ int             fork(void);
 int             growproc(int);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
+pagetable_t     k_proc_pagetable(struct proc*);
+// void            k_proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
@@ -158,13 +160,17 @@ void            uartputc_sync(int);
 int             uartgetc(void);
 
 // vm.c
-void            kvminit(void);
-void            kvminithart(void);
+void            kvminit();
+void            kvminithart();
 uint64          kvmpa(uint64);
 void            kvmmap(uint64, uint64, uint64, int);
+void            kvmmap2(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
+pagetable_t     kvmcreate(void);
 pagetable_t     uvmcreate(void);
-void            uvminit(pagetable_t, uchar *, uint);
+pte_t*          walk(pagetable_t, uint64, int);
+void            kfreewalk(pagetable_t );
+void            uvminit(pagetable_t, uchar*, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
 #ifdef SOL_COW

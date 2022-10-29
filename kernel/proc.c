@@ -121,6 +121,14 @@ found:
     return 0;
   }
 
+  p->k_pagetable = k_proc_pagetable(p);
+  char* pa = kalloc();
+  if (pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int)(p - proc));
+  kvmmap2(p->k_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+  
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,6 +149,17 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  
+  if (p->kstack) {
+    pte_t* pte = walk(p->k_pagetable, p->kstack, 0);
+    if (pte == 0)
+      panic("freeproc: walk");
+    kfree((void*)PTE2PA(*pte));
+  }
+  p->kstack = 0;
+  if (p->k_pagetable) {
+    kfreewalk(p->k_pagetable);
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -182,6 +201,33 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  return pagetable;
+}
+
+pagetable_t
+k_proc_pagetable(struct proc* p) {
+  pagetable_t pagetable;
+  pagetable = kvmcreate();
+  if (pagetable == 0)
+    return 0;
+    
+  // map the trampoline code (for system call return)
+  // at the highest user virtual address.
+  // only the supervisor uses it, on the way
+  // to/from user space, so not PTE_U.
+  // if (mappages(pagetable, TRAMPOLINE, PGSIZE,
+  //   (uint64)trampoline, PTE_R | PTE_X) < 0) {
+  //   uvmfree(pagetable, 0);
+  //   return 0;
+  // }
+
+  // // map the trapframe just below TRAMPOLINE, for trampoline.S.
+  // if (mappages(pagetable, TRAPFRAME, PGSIZE,
+  //   (uint64)(p->trapframe), PTE_R | PTE_W) < 0) {
+  //   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+  //   uvmfree(pagetable, 0);
+  //   return 0;
+  // }
   return pagetable;
 }
 
@@ -458,7 +504,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
@@ -473,12 +519,15 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->k_pagetable));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
 
+        kvminithart();
         found = 1;
       }
       release(&p->lock);
