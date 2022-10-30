@@ -339,6 +339,7 @@ kfreewalk(pagetable_t pagetable) {
       
     } else if (pte & PTE_V) {
       pagetable[i] = 0;
+      // 碰到设备地址，不用panic
       // panic("freewalk: leaf");
     }
   }

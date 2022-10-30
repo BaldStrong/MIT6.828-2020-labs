@@ -34,14 +34,14 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
-  kvminithart();
+  // kvminithart(); //切不切换都对，因为之前调用过一次了，而且在schedule里面会先切到内核页表
 }
 
 // Must be called with interrupts disabled,
@@ -149,18 +149,24 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
-  
+  p->pagetable = 0;
+  // 因为之前内核只有一个页表，所以是在内核停止运行时才释放的，
+  // 而现在每个进程都有一个内核页表，所以要在进程销毁时释放掉这些物理内存
   if (p->kstack) {
-    pte_t* pte = walk(p->k_pagetable, p->kstack, 0);
-    if (pte == 0)
-      panic("freeproc: walk");
-    kfree((void*)PTE2PA(*pte));
+  pte_t* pte = walk(p->k_pagetable, p->kstack, 0);
+  if (pte == 0)
+    panic("freeproc: walk");
+  if ((*pte & PTE_V) == 0)
+    panic("freeproc: walk");
+  kfree((void*)PTE2PA(*pte));
+    // kfree((void*)kvmpa(p->k_pagetable,p->kstack));
   }
   p->kstack = 0;
   if (p->k_pagetable) {
+    // 只释放页表本身，不释放引用的物理内存
     kfreewalk(p->k_pagetable);
   }
-  p->pagetable = 0;
+  p->k_pagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -210,24 +216,6 @@ k_proc_pagetable(struct proc* p) {
   pagetable = kvmcreate();
   if (pagetable == 0)
     return 0;
-    
-  // map the trampoline code (for system call return)
-  // at the highest user virtual address.
-  // only the supervisor uses it, on the way
-  // to/from user space, so not PTE_U.
-  // if (mappages(pagetable, TRAMPOLINE, PGSIZE,
-  //   (uint64)trampoline, PTE_R | PTE_X) < 0) {
-  //   uvmfree(pagetable, 0);
-  //   return 0;
-  // }
-
-  // // map the trapframe just below TRAMPOLINE, for trampoline.S.
-  // if (mappages(pagetable, TRAPFRAME, PGSIZE,
-  //   (uint64)(p->trapframe), PTE_R | PTE_W) < 0) {
-  //   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-  //   uvmfree(pagetable, 0);
-  //   return 0;
-  // }
   return pagetable;
 }
 
@@ -526,9 +514,8 @@ scheduler(void)
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
-
-        kvminithart();
         found = 1;
+        kvminithart();
       }
       release(&p->lock);
     }
