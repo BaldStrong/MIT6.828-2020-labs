@@ -263,12 +263,16 @@ userinit(void)
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
-
+  // TODO userinit uvm2kvmcopy
+  if (uvm2kvmcopy(p->pagetable, p->k_pagetable, 0, p->sz) != 0) {
+    panic("uvm2kvmcopy fail");
+  }
   release(&p->lock);
 }
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
+// TODO growproc 
 int
 growproc(int n)
 {
@@ -280,6 +284,10 @@ growproc(int n)
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 只把增量复制过去
+    if (uvm2kvmcopy(p->pagetable, p->k_pagetable, p->sz, p->sz + n) != 0) {
+      panic("uvm2kvmcopy fail");
+    }
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -289,6 +297,7 @@ growproc(int n)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
+// TODO fork
 int
 fork(void)
 {
@@ -303,6 +312,12 @@ fork(void)
 
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+  // 子进程的内核页表，需要和父进程一致吗？
+  if (uvm2kvmcopy(np->pagetable, np->k_pagetable, 0, p->sz) < 0) {
     freeproc(np);
     release(&np->lock);
     return -1;
