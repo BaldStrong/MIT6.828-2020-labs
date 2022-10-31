@@ -516,6 +516,7 @@ uvm2kvmcopy(pagetable_t pagetable, pagetable_t kpagetable, uint64 oldsz, uint64 
     if ((kpte = walk(kpagetable, a, 1)) == 0) {
       panic("uvm2kvmcopy: kpte should exist");
     }
+    // 去掉U，因为内核态访问不了
     flags = PTE_FLAGS(*pte) & (~PTE_U);
     *kpte = PA2PTE((uint64)PTE2PA(*pte)) | flags;
     // 如果要用mappages，需要允许重复映射
